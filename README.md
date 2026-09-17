@@ -1,5 +1,7 @@
 # opencode-tps-meter
 
+[![npm version](https://img.shields.io/npm/v/@jashjacob/opencode-tps-meter)](https://www.npmjs.com/package/@jashjacob/opencode-tps-meter)
+
 A live throughput meter for the [OpenCode](https://opencode.ai) TUI. It renders to the right of the session prompt as a VU-style time-series of generation speed, with average, peak, trend, and time-to-first-token.
 
 ```
