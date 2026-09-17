@@ -1,0 +1,59 @@
+{
+  "name": "@jashjacob/opencode-tps-meter",
+  "version": "0.1.0",
+  "description": "Live tokens-per-second meter for the OpenCode TUI prompt.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Jash Jacob <jash1993@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jashjacob/opencode-tps-meter.git"
+  },
+  "homepage": "https://github.com/jashjacob/opencode-tps-meter#readme",
+  "bugs": {
+    "url": "https://github.com/jashjacob/opencode-tps-meter/issues"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "tui",
+    "tps",
+    "tokens-per-second",
+    "throughput",
+    "benchmark"
+  ],
+  "oc-plugin": ["tui"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": "./src/index.tsx",
+    "./tui": "./src/index.tsx"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "opencode": ">=1.4.3"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "esbuild src/index.tsx --bundle --format=esm --platform=node --target=node20 --jsx=automatic --jsx-import-source=@opentui/solid --external:@opencode-ai/* --external:@opentui/* --external:solid-js --outfile=dist/index.js"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "*",
+    "@opentui/core": "*",
+    "@opentui/solid": "*",
+    "solid-js": "*"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.18.20",
+    "@opencode-ai/sdk": "1.18.20",
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.5.0"
+  }
+}
