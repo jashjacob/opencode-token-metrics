@@ -1,6 +1,6 @@
-# opencode-tps-meter
+# opencode-token-metrics
 
-[![npm version](https://img.shields.io/npm/v/@jashjacob/opencode-tps-meter)](https://www.npmjs.com/package/@jashjacob/opencode-tps-meter)
+[![npm version](https://img.shields.io/npm/v/opencode-token-metrics)](https://www.npmjs.com/package/opencode-token-metrics)
 
 A live throughput meter for the [OpenCode](https://opencode.ai) TUI. It renders to the right of the session prompt as a VU-style time-series of generation speed, with average, peak, trend, and time-to-first-token.
 
@@ -8,7 +8,7 @@ A live throughput meter for the [OpenCode](https://opencode.ai) TUI. It renders 
 tok/s ▃▆▇▇█▆▄ 42.0 ▲15% · avg 38.2 · pk 45.0 · ttft 0.8s
 ```
 
-![opencode-tps-meter running in the OpenCode TUI](assets/demo.gif)
+![opencode-token-metrics running in the OpenCode TUI](assets/demo.gif)
 
 ## What it looks like
 
@@ -38,7 +38,7 @@ The rate and trend are color-coded: red below `slowTps`, yellow up to `fastTps`,
 One command:
 
 ```bash
-opencode plugin @jashjacob/opencode-tps-meter -g
+opencode plugin opencode-token-metrics -g
 ```
 
 This installs the package from npm and adds it to `~/.config/opencode/tui.json`. TUI plugins belong in `tui.json`, **not** `opencode.json`. Restart the TUI afterwards — plugins load at startup and are not hot-reloaded.
@@ -48,7 +48,7 @@ Manual setup:
 ```jsonc
 // ~/.config/opencode/tui.json
 {
-  "plugin": ["@jashjacob/opencode-tps-meter"]
+  "plugin": ["opencode-token-metrics"]
 }
 ```
 
@@ -57,7 +57,7 @@ Add options by using the tuple form:
 ```jsonc
 {
   "plugin": [
-    ["@jashjacob/opencode-tps-meter", { "vuColumns": 20, "vuScale": "fixed", "vuFullTps": 80 }]
+    ["opencode-token-metrics", { "vuColumns": 20, "vuScale": "fixed", "vuFullTps": 80 }]
   ]
 }
 ```
@@ -67,19 +67,19 @@ Add options by using the tuple form:
 If you are an agent installing this for a user, the full procedure is:
 
 ```text
-GOAL: install opencode-tps-meter into the user's OpenCode TUI.
+GOAL: install opencode-token-metrics into the user's OpenCode TUI.
 
-1. Run: opencode plugin @jashjacob/opencode-tps-meter -g
-2. This installs the npm package and adds "@jashjacob/opencode-tps-meter" to the
+1. Run: opencode plugin opencode-token-metrics -g
+2. This installs the npm package and adds "opencode-token-metrics" to the
    "plugin" array in ~/.config/opencode/tui.json.
-3. If the installer is unavailable, add "@jashjacob/opencode-tps-meter" to that
+3. If the installer is unavailable, add "opencode-token-metrics" to that
    "plugin" array by hand. Do NOT remove sibling entries. Do NOT add a version suffix.
 4. TUI plugins go in tui.json, never opencode.json.
 5. Tell the user to restart the TUI. Plugins load at startup; there is no hot reload.
 6. Do not touch any other top-level key in tui.json.
 
 Optionally pass options with the tuple form:
-["@jashjacob/opencode-tps-meter", { "alwaysShow": true }]
+["opencode-token-metrics", { "alwaysShow": true }]
 ```
 
 ## Options
@@ -89,7 +89,7 @@ Pass options as the second element of the plugin tuple:
 ```jsonc
 {
   "plugin": [
-    ["@jashjacob/opencode-tps-meter", { "vuColumns": 20, "showTtft": false }]
+    ["opencode-token-metrics", { "vuColumns": 20, "showTtft": false }]
   ]
 }
 ```

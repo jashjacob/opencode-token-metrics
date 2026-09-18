@@ -1,5 +1,5 @@
 {
-  "name": "@jashjacob/opencode-tps-meter",
+  "name": "opencode-token-metrics",
   "version": "0.1.0",
   "description": "Live tokens-per-second meter for the OpenCode TUI prompt.",
   "type": "module",
@@ -7,11 +7,11 @@
   "author": "Jash Jacob <jash1993@gmail.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jashjacob/opencode-tps-meter.git"
+    "url": "git+https://github.com/jashjacob/opencode-token-metrics.git"
   },
-  "homepage": "https://github.com/jashjacob/opencode-tps-meter#readme",
+  "homepage": "https://github.com/jashjacob/opencode-token-metrics#readme",
   "bugs": {
-    "url": "https://github.com/jashjacob/opencode-tps-meter/issues"
+    "url": "https://github.com/jashjacob/opencode-token-metrics/issues"
   },
   "keywords": [
     "opencode",
