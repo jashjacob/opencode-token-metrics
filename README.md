@@ -12,26 +12,27 @@ tok/s ▃▆▇▇█▆▄ 42.0 ▲15% · avg 38.2 · pk 45.0 · ttft 0.8s
 
 ## What it looks like
 
-The graph grows one column per second as the model streams, auto-scaling to the turn's busiest second:
+The graph grows one column per second as the model streams, scaled to the turn's busiest second:
 
 ```
-tok/s ▁ 18.0                                    first token
-tok/s ▁▃▅ 33.0 ▲12%                             ramping up
+tok/s ▁ 18.0                                             first token
+tok/s ▁▃▅ 33.0 ▲12%                                      ramping up
 tok/s ▃▆▇▇█ 45.0 ▲18% · avg 41.2 · pk 45.0 · ttft 0.8s
-tok/s █▇▆▅▄ 21.0 ▼53% · avg 38.4 · pk 45.0 · ttft 0.8s   cooling down
-tok/s ▃▆▇▇█▆▄ 38.4 · avg 38.2 · pk 45.0 · ttft 0.8s      holds after it stops
-tok/s idle                                              nothing running
+tok/s ▃▆▇▇█▆▄ - · avg 41.2 · pk 45.0 · ttft 0.8s         tool call — average holds
+tok/s ▃▆▇▇█▆▄█▆ 43.0 ▲2% · avg 41.0 · pk 45.0 · ttft 0.8s   resumed
+tok/s ▃▆▇▇█▆▄█▆ 43.0 · avg 41.0 · pk 45.0 · ttft 0.8s        holds, scaled to exact tokens
+tok/s idle                                               nothing running
 ```
 
 The rate and trend are color-coded: red below `slowTps`, yellow up to `fastTps`, green at or above it.
 
-- **VU meter** — one half-block column per second, growing as the turn progresses (no reserved empty space), auto-scaled to the turn's peak
+- **VU meter** — one half-block column per second, growing as the turn progresses (no reserved empty space), scaled to the turn's busiest second
+- **Average** — active generation speed: tokens per second over the time actually spent streaming, so tool pauses don't drag it down
 - **Held frame** — when a turn ends the graph, rate, average, peak, and TTFT freeze and stay on screen until the next turn produces tokens
-- **Average** — tokens per second across the turn's active generation time
-- **Peak hold** — the fastest rate observed during the turn
+- **Exact totals** — on completion the graph and peak are rescaled to the provider's reported token count
+- **Peak hold** — the fastest rate observed during the turn, never below the average
 - **Trend** — up/down against the previous second, with percent
 - **TTFT** — time from the assistant message being created to the first streamed token
-- Exact token totals from provider usage on completion; character-based estimate while streaming
 
 ## Install (humans)
 
