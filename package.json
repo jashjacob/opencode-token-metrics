@@ -44,7 +44,8 @@
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "smoke": "node --import tsx scripts/smoke.mjs"
+    "smoke": "node --import tsx scripts/smoke.mjs",
+    "ci": "sh scripts/ci.sh"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": "*",
