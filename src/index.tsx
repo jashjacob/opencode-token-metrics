@@ -7,17 +7,7 @@
 import type { TuiPlugin, TuiPluginApi, TuiPluginModule, TuiThemeCurrent } from "@opencode-ai/plugin/tui"
 import { Show, createMemo, createSignal } from "solid-js"
 import { createMeterController } from "./controller.ts"
-import {
-  formatClock,
-  formatCount,
-  formatRate,
-  rateTier,
-  renderVu,
-  vuFullScale,
-  type Tier,
-  type Trend,
-  type VuScale,
-} from "./meter.ts"
+import { formatLine, hasData, rateTier, type Tier, type VuScale } from "./meter.ts"
 
 export type TpsMeterOptions = {
   enabled?: boolean
@@ -65,13 +55,6 @@ const DEFAULTS = {
 
 type ResolvedOptions = typeof DEFAULTS
 
-const TREND_GLYPHS: Record<Trend, string> = {
-  up: "▲",
-  down: "▼",
-  flat: "▬",
-  none: "",
-}
-
 function tierColor(tier: Tier, theme: TuiThemeCurrent) {
   switch (tier) {
     case "slow":
@@ -99,39 +82,16 @@ function MeterLine(props: {
     return props.store.snapshot(props.sessionID, Date.now(), props.options.vuColumns)
   })
 
-  const active = createMemo(() => {
-    const state = snapshot()
-    return state !== undefined && (state.tokens > 0 || state.peak > 0)
-  })
+  const active = createMemo(() => hasData(snapshot()))
 
   const mounted = createMemo(() => active() || props.options.alwaysShow)
 
   const text = createMemo(() => {
     const state = snapshot()
-    if (!active() || !state) return props.options.alwaysShow ? `${props.options.label} ${props.options.idleText}` : ""
-    const opts = props.options
-    const body: string[] = []
-    if (opts.showVu) {
-      const scale = vuFullScale(state.vu, opts.vuScale, opts.vuFullTps)
-      const graph = renderVu(state.vu, opts.vuColumns, scale)
-      if (graph) body.push(graph)
+    if (!active() || !state) {
+      return props.options.alwaysShow ? `${props.options.label} ${props.options.idleText}` : ""
     }
-    body.push(formatRate(state.rate))
-    const glyph = TREND_GLYPHS[state.trend]
-    if (opts.showTrend && glyph && state.rate >= 0) {
-      body.push(state.trendPct > 0 ? `${glyph}${Math.round(state.trendPct)}%` : glyph)
-    }
-
-    const tail: string[] = []
-    if (opts.showAvg) tail.push(`avg ${formatRate(state.avg)}`)
-    if (opts.showPeak) tail.push(`pk ${formatRate(state.peak)}`)
-    if (opts.showTtft && state.ttftMs !== undefined) tail.push(`ttft ${formatClock(state.ttftMs)}`)
-    if (opts.showTokenCount) tail.push(`${formatCount(state.tokens)} tok`)
-    if (opts.showElapsed) tail.push(formatClock(state.elapsed))
-
-    let line = `${opts.label} ${body.join(" ")}`
-    if (tail.length > 0) line += ` · ${tail.join(" · ")}`
-    return line
+    return formatLine(state, props.options)
   })
 
   const color = createMemo(() => {

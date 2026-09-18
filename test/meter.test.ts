@@ -6,12 +6,16 @@ import {
   approxTokens,
   formatClock,
   formatCount,
+  formatLine,
   formatRate,
+  hasData,
   measureRate,
   rateTier,
   renderVu,
   vuFullScale,
+  type DisplayOptions,
   type Sample,
+  type Snapshot,
 } from "../src/meter.ts"
 
 const CONFIG = { rollingWindowMs: 1000, idleTimeoutMs: 500, minSpanMs: 200 }
@@ -101,6 +105,96 @@ describe("formatters", () => {
   })
 })
 
+describe("formatLine", () => {
+  const base: Snapshot = {
+    rate: 42.5,
+    avg: 38.2,
+    live: true,
+    settled: false,
+    tokens: 1200,
+    elapsed: 12_000,
+    peak: 61,
+    peakBucket: 55,
+    trend: "up",
+    trendPct: 18,
+    ttftMs: 800,
+    vu: [10, 20, 30, 40],
+  }
+  const options: DisplayOptions = {
+    label: "tok/s",
+    showVu: true,
+    vuColumns: 12,
+    vuScale: "auto",
+    vuFullTps: 50,
+    showTrend: true,
+    showAvg: true,
+    showPeak: true,
+    showTtft: true,
+    showTokenCount: false,
+    showElapsed: false,
+  }
+
+  it("renders the default line", () => {
+    assert.equal(formatLine(base, options), "tok/s ▁▃▄▆ 42.5 ▲18% · avg 38.2 · pk 61.0 · ttft 0.8s")
+  })
+
+  it("omits the graph when showVu is false", () => {
+    assert.equal(formatLine(base, { ...options, showVu: false }), "tok/s 42.5 ▲18% · avg 38.2 · pk 61.0 · ttft 0.8s")
+  })
+
+  it("omits the trend when showTrend is false", () => {
+    assert.equal(formatLine(base, { ...options, showTrend: false }), "tok/s ▁▃▄▆ 42.5 · avg 38.2 · pk 61.0 · ttft 0.8s")
+  })
+
+  it("hides the trend while the rate is inactive", () => {
+    const line = formatLine({ ...base, rate: -1, trend: "none" }, options)
+    assert.ok(!line.includes("▲"))
+    assert.ok(line.includes("tok/s ▁▃▄▆ -"))
+  })
+
+  it("adds token count and elapsed when enabled", () => {
+    const line = formatLine(base, { ...options, showTokenCount: true, showElapsed: true })
+    assert.ok(line.endsWith("· avg 38.2 · pk 61.0 · ttft 0.8s · 1.2k tok · 12.0s"))
+  })
+
+  it("omits the graph entirely when there are no columns", () => {
+    const line = formatLine({ ...base, vu: [] }, options)
+    assert.equal(line, "tok/s 42.5 ▲18% · avg 38.2 · pk 61.0 · ttft 0.8s")
+  })
+
+  it("omits ttft when it is unknown", () => {
+    const line = formatLine({ ...base, ttftMs: undefined }, options)
+    assert.ok(line.endsWith("· avg 38.2 · pk 61.0"))
+  })
+})
+
+describe("hasData", () => {
+  const base: Snapshot = {
+    rate: 0,
+    avg: 0,
+    live: false,
+    settled: false,
+    tokens: 0,
+    elapsed: 0,
+    peak: 0,
+    peakBucket: 0,
+    trend: "none",
+    trendPct: 0,
+    ttftMs: undefined,
+    vu: [],
+  }
+
+  it("is false for undefined and empty snapshots", () => {
+    assert.equal(hasData(undefined), false)
+    assert.equal(hasData(base), false)
+  })
+
+  it("is true once there are tokens or a peak", () => {
+    assert.equal(hasData({ ...base, tokens: 1 }), true)
+    assert.equal(hasData({ ...base, peak: 1 }), true)
+  })
+})
+
 describe("renderVu", () => {
   it("renders only the columns that exist", () => {
     assert.equal(renderVu([], 4, 50), "")
@@ -113,6 +207,12 @@ describe("renderVu", () => {
     assert.equal(renderVu([6.25], 1, 50), "▁")
     assert.equal(renderVu([25], 1, 50), "▄")
     assert.equal(renderVu([50], 1, 50), "█")
+  })
+
+  it("gives low non-zero columns at least one block", () => {
+    assert.equal(renderVu([0.1], 1, 283), "▁")
+    assert.equal(renderVu([5], 1, 283), "▁")
+    assert.equal(renderVu([0], 1, 283), " ")
   })
 
   it("clamps above the full-scale value", () => {
@@ -135,6 +235,14 @@ describe("vuFullScale", () => {
 
   it("never returns zero", () => {
     assert.equal(vuFullScale([], "auto", 50), 1)
+  })
+
+  it("uses the turn peak for a stable scale", () => {
+    assert.equal(vuFullScale([10, 20], "auto", 50, 200), 200)
+  })
+
+  it("still honours a visible value above the peak", () => {
+    assert.equal(vuFullScale([10, 220], "auto", 50, 200), 220)
   })
 
   it("uses the fixed value in fixed mode", () => {
@@ -300,6 +408,94 @@ describe("TpsMeter", () => {
     assert.equal(snap.settled, true)
     assert.ok(snap.vu.some((value) => value > 0))
     assert.ok(snap.rate > 0)
+  })
+
+  it("tracks the busiest second for a stable graph scale", () => {
+    const meter = new TpsMeter(WIDE, () => 0, 0)
+    meter.record("a".repeat(250 * 4), 5000)
+    meter.record("a".repeat(70 * 4), 17_000)
+    const snap = meter.snapshot(17_500, 12)
+    assert.equal(snap.peakBucket, 250)
+    assert.deepEqual(snap.vu, [70])
+  })
+
+  it("scales the frozen graph to the provider's exact token total", () => {
+    const meter = new TpsMeter(WIDE, () => 0, 0)
+    meter.record("a".repeat(100 * 4), 1000)
+    const estimated = meter.snapshot(1100, 12)
+    assert.equal(estimated.tokens, 100)
+    assert.equal(estimated.peakBucket, 100)
+
+    meter.settle(1200, 150)
+    const snap = meter.snapshot(1200, 12)
+    assert.equal(snap.tokens, 150)
+    assert.equal(snap.peakBucket, 150)
+    assert.deepEqual(snap.vu, [150])
+    assert.ok(snap.peak >= snap.avg)
+  })
+
+  it("scales the graph down when the exact total is smaller than the estimate", () => {
+    const meter = new TpsMeter(WIDE, () => 0, 0)
+    meter.record("a".repeat(100 * 4), 1000)
+    meter.settle(1200, 50)
+    const snap = meter.snapshot(1200, 12)
+    assert.equal(snap.tokens, 50)
+    assert.equal(snap.peakBucket, 50)
+    assert.deepEqual(snap.vu, [50])
+  })
+
+  it("leaves the graph unchanged when there is no estimate to scale", () => {
+    const meter = new TpsMeter(WIDE, () => 0, 0)
+    meter.settle(1000, 42)
+    const snap = meter.snapshot(1000, 12)
+    assert.equal(snap.settled, true)
+    assert.equal(snap.tokens, 42)
+    assert.equal(snap.peakBucket, 0)
+    assert.deepEqual(snap.vu, [])
+  })
+
+  it("counts the same tokens regardless of chunk fragmentation", () => {
+    const text = "a".repeat(400)
+    const whole = new TpsMeter(WIDE, () => 0, 0)
+    whole.record(text, 1000)
+
+    const split = new TpsMeter(WIDE, () => 0, 0)
+    for (let i = 0; i < text.length; i += 7) split.record(text.slice(i, i + 7), 1000 + i)
+
+    assert.equal(whole.snapshot(1000, 12).tokens, 100)
+    assert.equal(split.snapshot(1400, 12).tokens, 100)
+  })
+
+  it("is fragmentation-invariant down to single-byte chunks", () => {
+    const meter = new TpsMeter(WIDE, () => 0, 0)
+    for (let i = 0; i < 8; i += 1) meter.record("a", 1000 + i)
+    assert.equal(meter.snapshot(1008, 12).tokens, 2)
+  })
+
+  it("excludes the tool pause from the average", () => {
+    const meter = new TpsMeter(WIDE, () => 0, 0)
+    meter.record("a".repeat(400), 1000)
+    meter.record("a".repeat(400), 2000)
+    meter.newSegment()
+    meter.record("a".repeat(400), 7000)
+    const snap = meter.snapshot(7050, 12)
+    assert.equal(snap.tokens, 300)
+    assert.equal(snap.avg, 300)
+  })
+
+  it("averages over active generation time across multiple segments", () => {
+    const meter = new TpsMeter(WIDE, () => 0, 0)
+    // Segment 1: 20 tokens across a 1000ms burst.
+    meter.record("a".repeat(40), 1000)
+    meter.record("a".repeat(40), 2000)
+    meter.newSegment()
+    // A long tool pause follows; it must not count toward the average.
+    // Segment 2: 40 tokens across a 1000ms burst.
+    meter.record("a".repeat(80), 9000)
+    meter.record("a".repeat(80), 10_000)
+    const snap = meter.snapshot(10_050, 12)
+    assert.equal(snap.tokens, 60)
+    assert.equal(snap.avg, 30)
   })
 
   it("reports the turn average from tokens over the token span", () => {

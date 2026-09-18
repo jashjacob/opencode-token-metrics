@@ -43,6 +43,8 @@ opencode plugin opencode-token-metrics -g
 
 This installs the package from npm and adds it to `~/.config/opencode/tui.json`. TUI plugins belong in `tui.json`, **not** `opencode.json`. Restart the TUI afterwards — plugins load at startup and are not hot-reloaded.
 
+The package ships TypeScript source and is transpiled by OpenCode's own runtime, so there is no separate build step.
+
 Manual setup:
 
 ```jsonc
@@ -125,7 +127,7 @@ The plugin subscribes to the TUI event bus:
 - `message.part.updated` — restarts the live rate when a tool part runs, while keeping the graph continuous across the gap.
 - `session.deleted` — frees that session's meter.
 
-The live rate is `tokens in window / elapsed span` over the trailing window, measured on the wall clock. The average is `turn tokens / token span`. Peak is the highest one-second rate seen during the turn (never below the average); trend compares the last two complete seconds. VU columns auto-scale to the largest bucket in view.
+The live rate is `tokens in window / elapsed span` over the trailing window, measured on the wall clock. The average is `turn tokens / active generation time` — the time spent streaming, excluding tool pauses. Peak is the highest one-second rate seen during the turn (never below the average); trend compares the last two complete seconds. VU columns auto-scale to the largest bucket in view, scaled to the provider's exact token total when the turn completes.
 
 ## License
 
