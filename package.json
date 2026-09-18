@@ -1,6 +1,6 @@
 {
   "name": "opencode-token-metrics",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Live tokens-per-second meter for the OpenCode TUI prompt.",
   "type": "module",
   "license": "MIT",
@@ -22,7 +22,9 @@
     "throughput",
     "benchmark"
   ],
-  "oc-plugin": ["tui"],
+  "oc-plugin": [
+    "tui"
+  ],
   "publishConfig": {
     "access": "public"
   },
@@ -36,12 +38,13 @@
     "LICENSE"
   ],
   "engines": {
+    "node": ">=18.19",
     "opencode": ">=1.4.3"
   },
   "scripts": {
-    "test": "node --test test/*.test.ts",
+    "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build": "esbuild src/index.tsx --bundle --format=esm --platform=node --target=node20 --jsx=automatic --jsx-import-source=@opentui/solid --external:@opencode-ai/* --external:@opentui/* --external:solid-js --outfile=dist/index.js"
+    "smoke": "node --import tsx scripts/smoke.mjs"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": "*",
@@ -54,6 +57,7 @@
     "@opencode-ai/sdk": "1.18.20",
     "@types/node": "^22.10.0",
     "esbuild": "^0.28.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.5.0"
   }
 }
