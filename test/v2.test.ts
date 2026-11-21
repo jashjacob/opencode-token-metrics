@@ -6,11 +6,12 @@ import { wireV2 } from "../src/v2.ts"
 
 type Handler = (event: unknown) => void
 
-function harness() {
+function harness(options: Record<string, unknown> = {}) {
   const handlers = new Map<string, Handler>()
   let status: "idle" | "running" = "running"
 
   const ctx = {
+    options,
     data: {
       on(type: string, handler: Handler) {
         handlers.set(type, handler)
@@ -348,8 +349,134 @@ describe("wireV2", () => {
     const h = harness()
     const controller = createMeterController(CONFIG)
     const dispose = wireV2(h.ctx, controller, () => {})
-    assert.equal(h.handlers.size, 14)
+    assert.equal(h.handlers.size, 15)
     dispose()
     assert.equal(h.handlers.size, 0)
+  })
+})
+
+const localStepStarted = (sessionID: string, messageID: string, started: number) => ({
+  data: { sessionID, assistantMessageID: messageID, agent: "a", model: { providerID: "llamaswap", id: "local-model" }, started },
+})
+
+const toolInput = (sessionID: string) => ({ data: { sessionID, assistantMessageID: "m1", id: "t1", name: "write" } })
+
+/** A fake llama-swap whose slot decodes `step` more tokens on each /slots read. */
+function fakeSwap(step: number) {
+  let decoded = 0
+  const urls: string[] = []
+  const fetch = (async (url: string) => {
+    urls.push(url)
+    decoded += step
+    return new Response(JSON.stringify([{ id: 0, is_processing: true, id_task: 7, next_token: [{ n_decoded: decoded }] }]))
+  }) as unknown as typeof globalThis.fetch
+  return { fetch, urls }
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+describe("wireV2 tool input and llama-swap", () => {
+  it("counts streamed tool-call arguments", () => {
+    const h = harness()
+    const controller = createMeterController(CONFIG)
+    wireV2(h.ctx, controller, () => {})
+    h.emit("session.tool.input.delta", { data: { sessionID: "s1", assistantMessageID: "m1", id: "t1", delta: "abcdefgh" } })
+    assert.equal(controller.store.snapshot("s1", Date.now(), 4)?.tokens, 2)
+  })
+
+  it("polls llama-swap slots for a local model's whole execution", async () => {
+    const h = harness({ llamaSwapPollMs: 20, llamaSwapProviders: ["llamaswap"] })
+    const swap = fakeSwap(10)
+    const controller = createMeterController(CONFIG)
+    const dispose = wireV2(h.ctx, controller, () => {}, { fetch: swap.fetch, now: () => Date.now() })
+    h.emit("session.step.started", localStepStarted("s1", "m1", Date.now()))
+    await sleep(150)
+    const reads = swap.urls.length
+    const snapshot = controller.store.snapshot("s1", Date.now(), 4)
+    // The first read is the baseline; every later read adds exactly 10 tokens.
+    assert.ok(reads >= 3, `expected several polls, got ${reads}`)
+    assert.ok((snapshot?.tokens ?? 0) >= (reads - 2) * 10 && (snapshot?.tokens ?? 0) <= reads * 10)
+    assert.ok((snapshot?.rate ?? -1) > 0)
+    assert.equal(swap.urls[0], "http://127.0.0.1:8080/upstream/local-model/slots")
+    h.emit("session.execution.succeeded", executionSucceeded("s1"))
+    const stopped = swap.urls.length
+    await sleep(60)
+    assert.equal(swap.urls.length, stopped, "polling stops when the execution ends")
+    dispose()
+  })
+
+  it("prefers the slot counter over event deltas while llama-swap answers", async () => {
+    const h = harness({ llamaSwapPollMs: 20, llamaSwapProviders: ["llamaswap"] })
+    const swap = fakeSwap(0)
+    const controller = createMeterController(CONFIG)
+    const dispose = wireV2(h.ctx, controller, () => {}, { fetch: swap.fetch, now: () => Date.now() })
+    h.emit("session.step.started", localStepStarted("s1", "m1", Date.now()))
+    await sleep(50)
+    h.emit("session.text.delta", textDelta("s1", "abcdefgh"))
+    assert.equal(controller.store.snapshot("s1", Date.now(), 4)?.tokens ?? 0, 0)
+    dispose()
+  })
+
+  it("counts a new request on the slot from zero", async () => {
+    const h = harness({ llamaSwapPollMs: 20, llamaSwapProviders: ["llamaswap"] })
+    const replies = [
+      { id_task: 1, n_decoded: 500 },
+      { id_task: 1, n_decoded: 520 },
+      { id_task: 2, n_decoded: 15 },
+    ]
+    let i = 0
+    const fetch = (async () => {
+      const reply = replies[Math.min(i++, replies.length - 1)]!
+      return new Response(JSON.stringify([{ is_processing: true, id_task: reply.id_task, next_token: [{ n_decoded: reply.n_decoded }] }]))
+    }) as unknown as typeof globalThis.fetch
+    const controller = createMeterController(CONFIG)
+    const dispose = wireV2(h.ctx, controller, () => {}, { fetch, now: () => Date.now() })
+    h.emit("session.step.started", localStepStarted("s1", "m1", Date.now()))
+    await sleep(55)
+    dispose()
+    // 500 is the baseline, +20 on the same task, then +15 for the new task.
+    assert.equal(controller.store.snapshot("s1", Date.now(), 4)?.tokens, 35)
+  })
+
+  it("does not poll unless llama-swap providers are configured", async () => {
+    const h = harness({ llamaSwapPollMs: 20 })
+    const swap = fakeSwap(10)
+    const controller = createMeterController(CONFIG)
+    const dispose = wireV2(h.ctx, controller, () => {}, { fetch: swap.fetch, now: () => Date.now() })
+    h.emit("session.step.started", localStepStarted("s1", "m1", Date.now()))
+    await sleep(60)
+    assert.equal(swap.urls.length, 0)
+    dispose()
+  })
+
+  it("does not poll for remote providers", async () => {
+    const h = harness({ llamaSwapPollMs: 20, llamaSwapProviders: ["llamaswap"] })
+    const swap = fakeSwap(10)
+    const controller = createMeterController(CONFIG)
+    const dispose = wireV2(h.ctx, controller, () => {}, { fetch: swap.fetch, now: () => Date.now() })
+    h.emit("session.step.started", stepStarted("s1", "m1", Date.now()))
+    await sleep(60)
+    assert.equal(swap.urls.length, 0)
+    dispose()
+  })
+
+  it("falls back to event deltas when llama-swap is down, and stops polling on dispose", async () => {
+    const h = harness({ llamaSwapPollMs: 20, llamaSwapProviders: ["llamaswap"] })
+    let calls = 0
+    const fetch = (async () => {
+      calls += 1
+      throw new Error("ECONNREFUSED")
+    }) as unknown as typeof globalThis.fetch
+    const controller = createMeterController(CONFIG)
+    const dispose = wireV2(h.ctx, controller, () => {}, { fetch, now: () => Date.now() })
+    h.emit("session.step.started", localStepStarted("s1", "m1", Date.now()))
+    await sleep(60)
+    h.emit("session.text.delta", textDelta("s1", "abcdefgh"))
+    assert.equal(controller.store.snapshot("s1", Date.now(), 4)?.tokens, 2)
+    dispose()
+    const after = calls
+    await sleep(60)
+    assert.ok(after > 0)
+    assert.equal(calls, after)
   })
 })
