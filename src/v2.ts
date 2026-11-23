@@ -66,53 +66,86 @@ export function wireV2(
   const swapUrl = (opts.llamaSwapUrl ?? "http://127.0.0.1:8080").replace(/\/$/, "")
   const swapProviders = opts.llamaSwapProviders ?? []
   const pollMs = opts.llamaSwapPollMs ?? 250
-  type Poll = { timer: ReturnType<typeof setInterval>; task?: number; decoded?: number; okAt?: number }
+  type Poll = { modelID: string; timer?: ReturnType<typeof setTimeout>; task?: number; decoded?: number; okAt?: number }
   const polls = new Map<string, Poll>()
 
   const stopPoll = (sessionID: string) => {
     const poll = polls.get(sessionID)
     if (!poll) return
-    clearInterval(poll.timer)
+    clearTimeout(poll.timer)
     polls.delete(sessionID)
   }
 
-  const pollOnce = async (sessionID: string, modelID: string, poll: Poll) => {
+  /**
+   * The slot counter can only be attributed to a session when exactly one
+   * session polls that model and exactly one slot is decoding. Otherwise (a
+   * subagent on the same model, parallel slots) it would be counted twice or
+   * credited to the wrong session, so the event deltas take over.
+   */
+  const ambiguous = (poll: Poll, processing: number) => {
+    if (processing > 1) return true
+    let sharing = 0
+    for (const other of polls.values()) if (other.modelID === poll.modelID) sharing += 1
+    return sharing > 1
+  }
+
+  const pollOnce = async (sessionID: string, poll: Poll) => {
     try {
-      const res = await deps.fetch(`${swapUrl}/upstream/${encodeURIComponent(modelID)}/slots`, {
+      const res = await deps.fetch(`${swapUrl}/upstream/${encodeURIComponent(poll.modelID)}/slots`, {
         signal: AbortSignal.timeout(Math.max(200, pollMs * 2)),
       })
       if (!res.ok || polls.get(sessionID) !== poll) return
-      poll.okAt = deps.now()
       const slots = (await res.json()) as SlotInfo[]
-      const slot = Array.isArray(slots) ? slots.find((x) => x.is_processing) : undefined
+      if (polls.get(sessionID) !== poll) return
+      const busy = Array.isArray(slots) ? slots.filter((x) => x.is_processing) : []
+      if (ambiguous(poll, busy.length)) {
+        // Hand back to event deltas and re-baseline once the counter is usable again.
+        poll.okAt = undefined
+        poll.task = undefined
+        poll.decoded = undefined
+        return
+      }
+      poll.okAt = deps.now()
+      const slot = busy[0]
       const decoded = slot?.next_token?.[0]?.n_decoded
-      if (!slot || typeof decoded !== "number" || polls.get(sessionID) !== poll) return
+      if (!slot || typeof decoded !== "number") return
       // The first reading only sets the baseline (the request may be under way);
       // a later request on the slot (the next step of a tool loop) starts at zero.
-      if (poll.task === undefined) {
+      if (poll.task === undefined || poll.decoded === undefined) {
         poll.task = slot.id_task
         poll.decoded = decoded
         return
       }
-      if (poll.task !== slot.id_task || poll.decoded === undefined || decoded < poll.decoded) {
+      if (poll.task !== slot.id_task) {
         poll.task = slot.id_task
         poll.decoded = 0
+      } else if (decoded < poll.decoded) {
+        // Same request but a lower count: never count it again from zero.
+        poll.decoded = decoded
+        return
       }
       const tokens = decoded - poll.decoded
       poll.decoded = decoded
       // The meter estimates tokens as UTF-8 bytes / 4, so 4 bytes per token records the exact count.
       if (tokens > 0) emit({ kind: "delta", sessionID, text: "xxxx".repeat(tokens), at: deps.now() })
     } catch {
-      // llama-swap down or the model swapped out: the meter just shows no live rate.
+      // llama-swap down or the model swapped out: event deltas take over.
     }
+  }
+
+  /** Poll in a chain, never overlapping, so replies are always applied in order. */
+  const loop = (sessionID: string, poll: Poll) => {
+    void pollOnce(sessionID, poll).finally(() => {
+      if (polls.get(sessionID) === poll) poll.timer = setTimeout(() => loop(sessionID, poll), pollMs)
+    })
   }
 
   const startPoll = (sessionID: string) => {
     const model = models.get(sessionID)
     if (!model || !swapProviders.includes(model.providerID) || polls.has(sessionID)) return
-    const poll: Poll = { timer: setInterval(() => void pollOnce(sessionID, model.id, poll), pollMs) }
+    const poll: Poll = { modelID: model.id }
     polls.set(sessionID, poll)
-    void pollOnce(sessionID, model.id, poll)
+    loop(sessionID, poll)
   }
 
   /** Whether llama-swap answered recently, so its counter replaces event deltas. */

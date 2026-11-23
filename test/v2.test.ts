@@ -480,3 +480,78 @@ describe("wireV2 tool input and llama-swap", () => {
     assert.equal(calls, after)
   })
 })
+
+describe("wireV2 llama-swap robustness", () => {
+  const reply = (slots: Array<{ is_processing: boolean; id_task: number; n_decoded: number }>) =>
+    new Response(JSON.stringify(slots.map((s) => ({ ...s, next_token: [{ n_decoded: s.n_decoded }] }))))
+
+  it("never has two slot reads in flight, even when llama-swap is slow", async () => {
+    const h = harness({ llamaSwapPollMs: 10, llamaSwapProviders: ["llamaswap"] })
+    let inFlight = 0
+    let maxInFlight = 0
+    let reads = 0
+    const fetch = (async () => {
+      inFlight += 1
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      reads += 1
+      await sleep(40)
+      inFlight -= 1
+      return reply([{ is_processing: true, id_task: 1, n_decoded: reads * 10 }])
+    }) as unknown as typeof globalThis.fetch
+    const controller = createMeterController(CONFIG)
+    const dispose = wireV2(h.ctx, controller, () => {}, { fetch, now: () => Date.now() })
+    h.emit("session.step.started", localStepStarted("s1", "m1", Date.now()))
+    await sleep(250)
+    dispose()
+    assert.equal(maxInFlight, 1)
+    assert.ok(reads >= 3)
+  })
+
+  it("does not recount a request from zero when a lower count arrives for the same task", async () => {
+    const h = harness({ llamaSwapPollMs: 10, llamaSwapProviders: ["llamaswap"] })
+    const counts = [100, 120, 110, 130]
+    let i = 0
+    const fetch = (async () =>
+      reply([{ is_processing: true, id_task: 1, n_decoded: counts[Math.min(i++, counts.length - 1)]! }])) as unknown as typeof globalThis.fetch
+    const controller = createMeterController(CONFIG)
+    const dispose = wireV2(h.ctx, controller, () => {}, { fetch, now: () => Date.now() })
+    h.emit("session.step.started", localStepStarted("s1", "m1", Date.now()))
+    await sleep(120)
+    dispose()
+    // Baseline 100, +20, re-baseline at 110 (no tokens), +20.
+    assert.equal(controller.store.snapshot("s1", Date.now(), 4)?.tokens, 40)
+  })
+
+  it("falls back to event deltas when more than one slot is decoding", async () => {
+    const h = harness({ llamaSwapPollMs: 10, llamaSwapProviders: ["llamaswap"] })
+    let n = 0
+    const fetch = (async () => {
+      n += 10
+      return reply([
+        { is_processing: true, id_task: 1, n_decoded: n },
+        { is_processing: true, id_task: 2, n_decoded: n },
+      ])
+    }) as unknown as typeof globalThis.fetch
+    const controller = createMeterController(CONFIG)
+    const dispose = wireV2(h.ctx, controller, () => {}, { fetch, now: () => Date.now() })
+    h.emit("session.step.started", localStepStarted("s1", "m1", Date.now()))
+    await sleep(80)
+    h.emit("session.text.delta", textDelta("s1", "abcdefgh"))
+    dispose()
+    assert.equal(controller.store.snapshot("s1", Date.now(), 4)?.tokens, 2)
+  })
+
+  it("does not credit one slot to two sessions on the same model", async () => {
+    const h = harness({ llamaSwapPollMs: 10, llamaSwapProviders: ["llamaswap"] })
+    const swap = fakeSwap(10)
+    const controller = createMeterController(CONFIG)
+    const dispose = wireV2(h.ctx, controller, () => {}, { fetch: swap.fetch, now: () => Date.now() })
+    h.emit("session.step.started", localStepStarted("parent", "m1", Date.now()))
+    h.emit("session.step.started", localStepStarted("child", "m2", Date.now()))
+    await sleep(80)
+    h.emit("session.text.delta", textDelta("child", "abcdefgh", "m2"))
+    dispose()
+    assert.equal(controller.store.snapshot("parent", Date.now(), 4)?.tokens ?? 0, 0)
+    assert.equal(controller.store.snapshot("child", Date.now(), 4)?.tokens, 2)
+  })
+})
