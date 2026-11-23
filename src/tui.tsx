@@ -139,7 +139,10 @@ function MeterLine(props: {
 
   return (
     <Show when={mounted()}>
-      <text fg={color()}>{text()}</text>
+      {/* Never wrap: a squeezed footer would split the line over two rows. */}
+      <text fg={color()} wrapMode="none" flexShrink={0}>
+        {text()}
+      </text>
     </Show>
   )
 }
